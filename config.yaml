@@ -1,0 +1,36 @@
+jarvis:
+    name: "JARVIS"
+    wake_word: "jarvis"
+    language: "es"
+
+audio:
+    sample_rate: 16000
+    channels: 1
+    silence_threshold: 500
+    silence_duration: 1.5
+    max_recording_duration: 10
+
+whisper:
+    model_size: "base" # tiny, base, small, medium
+    deviece: "cpu" # cpu o cuda
+    compute_type: "int8"
+
+mqtt:
+    broker: "localhost"
+    port: 1883
+    topics:
+        wake: "jarvis/wake"
+        listening: "jarvis/listening"
+        processing: "jarvis/processing"
+        response: "jarvis/response"
+        command: "jarvis/command"
+        hud: "jarvis/hud"
+
+ollama:
+    host: "http://localhost:11434"
+    model: "llama3.2:3b" # Modelo ligero y rápido
+    system_prompt: "Eres JARVIS, un asistente de IA al estilo Iron Man. Responde de forma concisa, técnica y con un toque de personalidad. Máximo 2 frases."
+
+tts:
+    voice: "es_ES-carlfm-medium"  # Voz española
+    speed: 1.0
