@@ -9,3 +9,4 @@ pygetwindow>=0.0.9
 psutil>=5.9.0
 openwakeword>=0.5.0
 piper-tts>=1.2.0
+sympy>=1.12

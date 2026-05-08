@@ -121,18 +121,25 @@ class SkillManager:
             "despertador": self.set_alarm_skill,
             "cancelar temporizador":self.cancel_timer_skill,
             "cancelar alarma":self.cancel_alarm_skill,
-            "temporizadores activos":self.list_timer_skill,
-            "alarmas programadas":self.list_alarm_skill,
+            "temporizadores activos":self.list_timers_skill,
+            "alarmas programadas":self.list_alarms_skill,
 
             # ---- CONFIGURACION ----
             "auto inicio": self.toggle_startup,
             "iniciar con windows": self.toggle_startup,
             "auto arranque": self.toggle_startup,
 
+            # ---- FRASES ----
             "dato curioso": self.random_quote,
             "dime algo": self.random_quote,
             "cuentame algo": self.random_quote,
             "frase del dia": self.random_quote,
+
+            # ---- CALCULADORA ----
+            "calcula": self.calculate_skill,
+            "calculame": self.calculate_skill,
+            "cuanto es": self.calculate_skill,
+            "resuelve": self.calculate_skill,
         }
         
         logger.info(f"Nivel 2 - Skills inicializado ({len(self.skills)} comandos disponibles)")
@@ -933,4 +940,14 @@ class SkillManager:
             'success': True,
             'response': response,
             'action': 'quote'
+        }
+    def calculate_skill(self, command: str) -> Dict[str, Any]:
+        """Calculadora por voz"""
+        from core.calculator import Calculator
+        calc = Calculator()
+        response = calc.parse_and_calculate(command)
+        return {
+            'success': True,
+            'response': response,
+            'action': 'calculate'
         }
