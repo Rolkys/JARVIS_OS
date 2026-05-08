@@ -15,6 +15,7 @@ from core.skills import SkillManager
 from core.brain import Brain
 from core.speaker import Speaker
 from core.sounds import SoundEffects
+from core.timers import TimerManager
 from ui.hud import StarkHUD
 from PySide6.QtWidgets import QApplocation
 
@@ -42,6 +43,7 @@ class JarvisOS:
         self.mqtt.connect()
 
         self.sounds = SoundEffects()
+        self.timer_maganer = TimerManager(speaker=self.speaker, sounds=self.sounds)
         # Inicializar modulos en orden
         logger.info("Cargando modulos...")
 

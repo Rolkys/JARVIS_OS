@@ -113,6 +113,16 @@ class SkillManager:
             "captura": self.screenshot,
             "capturar pantalla": self.screenshot,
             "pantallazo": self.screenshot,
+
+            # ---- TEMPORIZADORES ----
+            "temporizador": self.set_timer_skill,
+            "alarma": self.set_alarm_skill,
+            "avisame en": self.set_timer_skill,
+            "despertador": self.set_alarm_skill,
+            "cancelar temporizador":self.cancel_timer_skill,
+            "cancelar alarma":self.cancel_alarm_skill,
+            "temporizadores activos":self.list_timer_skill,
+            "alarmas programadas":self.list_alarm_skill,
         }
         
         logger.info(f"Nivel 2 - Skills inicializado ({len(self.skills)} comandos disponibles)")
@@ -344,7 +354,7 @@ class SkillManager:
         
         dias = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
         meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
-                 "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+                "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
         
         dia_semana = dias[now.weekday()]
         dia = now.day
@@ -807,6 +817,92 @@ class SkillManager:
             'action': 'screenshot'
         }
 
+    def set_timer_skill(self, command: str) -> Dict[str, Any]:
+        """Configura un temporizador"""
+        from core.timers import TimerManager
+        timer_mgr = TimerManager()
+        seconds = timer_mgr.parse_time(command)
+        
+        if not seconds:
+            return {
+                'success': False,
+                'response': "No entendi el tiempo. Di: temporizador 5 minutos",
+                'action': 'timer'
+            }
+        
+        response = timer_mgr.set_timer(seconds)
+        
+        return {
+            'success': True,
+            'response': response,
+            'action': 'timer'
+        }
+    
+    def set_alarm_skill(self, command: str) -> Dict[str, Any]:
+        """Configura una alarma"""
+        from core.timers import TimerManager
+        timer_mgr = TimerManager()
+        time_tuple = timer_mgr.parse_alarm_time(command)
+        
+        if not time_tuple:
+            return {
+                'success': False,
+                'response': "No entendi la hora. Di: alarma a las 8:30",
+                'action': 'alarm'
+            }
+        
+        hour, minute = time_tuple
+        response = timer_mgr.set_alarm(hour, minute)
+        
+        return {
+            'success': True,
+            'response': response,
+            'action': 'alarm'
+        }
+    
+    def cancel_timer_skill(self, command: str) -> Dict[str, Any]:
+        """Cancela un temporizador"""
+        from core.timers import TimerManager
+        timer_mgr = TimerManager()
+        response = timer_mgr.cancel_timer()
+        return {
+            'success': True,
+            'response': response,
+            'action': 'cancel_timer'
+        }
+    
+    def cancel_alarm_skill(self, command: str) -> Dict[str, Any]:
+        """Cancela una alarma"""
+        from core.timers import TimerManager
+        timer_mgr = TimerManager()
+        response = timer_mgr.cancel_alarm()
+        return {
+            'success': True,
+            'response': response,
+            'action': 'cancel_alarm'
+        }
+    
+    def list_timers_skill(self, command: str) -> Dict[str, Any]:
+        """Lista temporizadores activos"""
+        from core.timers import TimerManager
+        timer_mgr = TimerManager()
+        response = timer_mgr.list_timers()
+        return {
+            'success': True,
+            'response': response,
+            'action': 'list_timers'
+        }
+    
+    def list_alarms_skill(self, command: str) -> Dict[str, Any]:
+        """Lista alarmas programadas"""
+        from core.timers import TimerManager
+        timer_mgr = TimerManager()
+        response = timer_mgr.list_alarms()
+        return {
+            'success': True,
+            'response': response,
+            'action': 'list_alarms'
+        }
 
 # ==========================================
 # PRUEBA INDEPENDIENTE
