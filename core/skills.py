@@ -128,6 +128,11 @@ class SkillManager:
             "auto inicio": self.toggle_startup,
             "iniciar con windows": self.toggle_startup,
             "auto arranque": self.toggle_startup,
+
+            "dato curioso": self.random_quote,
+            "dime algo": self.random_quote,
+            "cuentame algo": self.random_quote,
+            "frase del dia": self.random_quote,
         }
         
         logger.info(f"Nivel 2 - Skills inicializado ({len(self.skills)} comandos disponibles)")
@@ -918,4 +923,14 @@ class SkillManager:
             'success': True,
             'response': response,
             'action': 'startup'
+        }
+    def random_quote(self, command: str) -> Dict[str, Any]:
+        """Devuelve una frase aleatoria"""
+        from core.quotes import get_quote_manager
+        quotes = get_quote_manager()
+        response = quotes.get_random_fact()
+        return {
+            'success': True,
+            'response': response,
+            'action': 'quote'
         }

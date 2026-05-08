@@ -16,6 +16,7 @@ from core.brain import Brain
 from core.speaker import Speaker
 from core.sounds import SoundEffects
 from core.timers import TimerManager
+from core.quotes import get_quote_manager
 from ui.hud import StarkHUD
 from PySide6.QtWidgets import QApplocation
 
@@ -44,6 +45,7 @@ class JarvisOS:
 
         self.sounds = SoundEffects()
         self.timer_maganer = TimerManager(speaker=self.speaker, sounds=self.sounds)
+        self.quotes = get_quote_manager()
         # Inicializar modulos en orden
         logger.info("Cargando modulos...")
 
@@ -65,40 +67,40 @@ class JarvisOS:
         self.hud.show_hud()
     
     def process_command(self, text: str):
-        """Procesar un comando de voz completo"""
         logger.info(f"Comando recibido: {text}")
-
+        
         if not text:
             return
         
-        # 1. Intentar skills
         skill_result = self.skill_manager.execute(text)
-
-        # 2. Obtener respuesta
+        
         if skill_result.get('success'):
             response = skill_result.get('response', 'Accion completada')
             self.sounds.play_async(self.sounds.command_success)
+            quote = self.quotes.get_success_quote()
+            response = f"{quote}. {response}"
         else:
             response = self.brain.generate_response(text)
             if response:
-                self.sounds.play_async(self.sounds.notificacion)
+                self.sounds.play_async(self.sounds.notification)
             else:
                 self.sounds.play_async(self.sounds.command_error)
+                response = self.quotes.get_error_quote()
         
-        # 3. Hablar respuesta
         if response:
             logger.info(f"JARVIS: {response}")
-            self.speaker.stop()
-    
+            self.speaker.speak(response)
+        
     def on_wake(self):
-        """Callback cuando se detecta una plabra clave"""
         logger.info("Palabra clave detectada")
         self.sounds.play_async(self.sounds.activation_sound)
         self.speaker.stop()
-
-        # Escuchar comando
+        
+        wake_quote = self.quotes.get_wake_quote()
+        self.speaker.speak(wake_quote)
+        
         text = self.listener.listen_and_transcribe()
-
+        
         if text:
             self.process_command(text)
     
@@ -126,13 +128,15 @@ class JarvisOS:
         app.exec()
     
     def shutdown(self):
-        """Apagar el asistente correctamente"""
-        logger.info("Apando JARVIS...")
-        self.speaker.speak("Apagando sistemas. Hasta luego señor")
+        logger.info("Apagando JARVIS...")
+        farewell = self.quotes.get_farewell()
+        self.speaker.speak(farewell)
         self.speaker.wait_until_done()
         self.waker.stop_listening()
         self.mqtt.disconnect()
 
+    
+    
 if __name__ == "__main__":
     jarvis = JarvisOS()
     try:
