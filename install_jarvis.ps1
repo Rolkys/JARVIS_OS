@@ -22,7 +22,7 @@ $ErrorActionPreference = "Stop"
 # ============================================
 # 1. INSTALAR CHOCOLATEY
 # ============================================
-Write-Host "[1/7] Instalando Chocolatey..." -ForegroundColor Yellow
+Write-Host "[1/8] Instalando Chocolatey..." -ForegroundColor Yellow
 
 if (Get-Command choco -ErrorAction SilentlyContinue) {
     Write-Host "Chocolatey ya esta instalado" -ForegroundColor Green
@@ -39,7 +39,6 @@ if (Get-Command choco -ErrorAction SilentlyContinue) {
     }
 }
 
-# Refrescar PATH
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 refreshenv -ErrorAction SilentlyContinue
 
@@ -47,7 +46,7 @@ refreshenv -ErrorAction SilentlyContinue
 # 2. INSTALAR PYTHON 3.11
 # ============================================
 Write-Host ""
-Write-Host "[2/7] Instalando Python 3.11..." -ForegroundColor Yellow
+Write-Host "[2/8] Instalando Python 3.11..." -ForegroundColor Yellow
 
 if (Get-Command python -ErrorAction SilentlyContinue) {
     $pythonVersion = python --version 2>&1
@@ -69,7 +68,7 @@ if (Get-Command python -ErrorAction SilentlyContinue) {
 # 3. INSTALAR GIT
 # ============================================
 Write-Host ""
-Write-Host "[3/7] Instalando Git..." -ForegroundColor Yellow
+Write-Host "[3/8] Instalando Git..." -ForegroundColor Yellow
 
 if (Get-Command git -ErrorAction SilentlyContinue) {
     Write-Host "Git ya esta instalado" -ForegroundColor Green
@@ -90,7 +89,7 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
 # 4. INSTALAR MOSQUITTO MQTT
 # ============================================
 Write-Host ""
-Write-Host "[4/7] Instalando Mosquitto MQTT..." -ForegroundColor Yellow
+Write-Host "[4/8] Instalando Mosquitto MQTT..." -ForegroundColor Yellow
 
 if (Get-Service mosquitto -ErrorAction SilentlyContinue) {
     Write-Host "Mosquitto ya esta instalado" -ForegroundColor Green
@@ -98,11 +97,9 @@ if (Get-Service mosquitto -ErrorAction SilentlyContinue) {
     try {
         choco install mosquitto -y
         
-        # Iniciar servicio
         Start-Service mosquitto
         Set-Service mosquitto -StartupType Automatic
         
-        # Abrir puerto en firewall
         New-NetFirewallRule -DisplayName "Mosquitto MQTT" -Direction Inbound -Protocol TCP -LocalPort 1883 -Action Allow -ErrorAction SilentlyContinue
         
         Write-Host "Mosquitto MQTT instalado y ejecutandose" -ForegroundColor Green
@@ -117,7 +114,7 @@ if (Get-Service mosquitto -ErrorAction SilentlyContinue) {
 # 5. INSTALAR OLLAMA
 # ============================================
 Write-Host ""
-Write-Host "[5/7] Instalando Ollama..." -ForegroundColor Yellow
+Write-Host "[5/8] Instalando Ollama..." -ForegroundColor Yellow
 
 if (Get-Command ollama -ErrorAction SilentlyContinue) {
     Write-Host "Ollama ya esta instalado" -ForegroundColor Green
@@ -134,7 +131,6 @@ if (Get-Command ollama -ErrorAction SilentlyContinue) {
     }
 }
 
-# Iniciar Ollama si no esta corriendo
 $ollamaRunning = Get-Process ollama -ErrorAction SilentlyContinue
 if (-not $ollamaRunning) {
     Write-Host "Iniciando Ollama en segundo plano..." -ForegroundColor Yellow
@@ -146,7 +142,7 @@ if (-not $ollamaRunning) {
 # 6. DESCARGAR MODELO DE OLLAMA
 # ============================================
 Write-Host ""
-Write-Host "[6/7] Descargando modelo llama3.2:3b (2GB)..." -ForegroundColor Yellow
+Write-Host "[6/8] Descargando modelo llama3.2:3b (2GB)..." -ForegroundColor Yellow
 Write-Host "Esto puede tardar unos minutos..." -ForegroundColor Yellow
 
 try {
@@ -161,7 +157,7 @@ try {
 # 7. CREAR ENTORNO VIRTUAL E INSTALAR DEPENDENCIAS
 # ============================================
 Write-Host ""
-Write-Host "[7/7] Configurando entorno Python..." -ForegroundColor Yellow
+Write-Host "[7/8] Configurando entorno Python..." -ForegroundColor Yellow
 
 $projectPath = "C:\JARVIS_OS"
 
@@ -171,7 +167,6 @@ if (-not (Test-Path $projectPath)) {
 
 Set-Location $projectPath
 
-# Crear entorno virtual
 if (Test-Path "$projectPath\venv") {
     Write-Host "Entorno virtual ya existe" -ForegroundColor Yellow
 } else {
@@ -179,7 +174,6 @@ if (Test-Path "$projectPath\venv") {
     Write-Host "Entorno virtual creado" -ForegroundColor Green
 }
 
-# Activar e instalar dependencias
 Write-Host "Instalando dependencias Python..." -ForegroundColor Yellow
 
 & "$projectPath\venv\Scripts\python.exe" -m pip install --upgrade pip | Out-Null
@@ -194,7 +188,8 @@ $packages = @(
     "requests",
     "pygetwindow",
     "psutil",
-    "openwakeword"
+    "openwakeword",
+    "piper-tts"
 )
 
 foreach ($package in $packages) {
@@ -203,6 +198,24 @@ foreach ($package in $packages) {
 }
 
 Write-Host "Dependencias instaladas correctamente" -ForegroundColor Green
+
+# ============================================
+# 8. DESCARGAR VOZ ESPAÑOLA PIPER TTS
+# ============================================
+Write-Host ""
+Write-Host "[8/8] Descargando voz espanola para Piper TTS..." -ForegroundColor Yellow
+
+try {
+    & "$projectPath\venv\Scripts\python.exe" -c @"
+from piper.download import get_voice
+import os
+os.makedirs('$projectPath\models', exist_ok=True)
+get_voice('es_ES-carlfm-medium', download_dir='$projectPath\models')
+"@
+    Write-Host "Voz espanola descargada correctamente" -ForegroundColor Green
+} catch {
+    Write-Host "Error descargando voz: $_" -ForegroundColor Yellow
+}
 
 # ============================================
 # FINALIZAR
@@ -218,6 +231,7 @@ Write-Host "  [x] Python 3.11" -ForegroundColor Green
 Write-Host "  [x] Git" -ForegroundColor Green
 Write-Host "  [x] Mosquitto MQTT (puerto 1883)" -ForegroundColor Green
 Write-Host "  [x] Ollama + llama3.2:3b" -ForegroundColor Green
+Write-Host "  [x] Piper TTS + voz espanola" -ForegroundColor Green
 Write-Host "  [x] Entorno virtual + dependencias" -ForegroundColor Green
 Write-Host ""
 Write-Host "Carpeta del proyecto: C:\JARVIS_OS" -ForegroundColor Yellow
