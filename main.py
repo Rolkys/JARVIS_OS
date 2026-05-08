@@ -14,6 +14,7 @@ from core.waker import Waker
 from core.skills import SkillManager
 from core.brain import Brain
 from core.speaker import Speaker
+from core.sounds import SoundEffects
 from ui.hud import StarkHUD
 from PySide6.QtWidgets import QApplocation
 
@@ -40,6 +41,7 @@ class JarvisOS:
         self.mqtt = MQTTHandler(config_path)
         self.mqtt.connect()
 
+        self.sounds = SoundEffects()
         # Inicializar modulos en orden
         logger.info("Cargando modulos...")
 
@@ -73,8 +75,13 @@ class JarvisOS:
         # 2. Obtener respuesta
         if skill_result.get('success'):
             response = skill_result.get('response', 'Accion completada')
+            self.sounds.play_async(self.sounds.command_success)
         else:
             response = self.brain.generate_response(text)
+            if response:
+                self.sounds.play_async(self.sounds.notificacion)
+            else:
+                self.sounds.play_async(self.sounds.command_error)
         
         # 3. Hablar respuesta
         if response:
@@ -84,6 +91,7 @@ class JarvisOS:
     def on_wake(self):
         """Callback cuando se detecta una plabra clave"""
         logger.info("Palabra clave detectada")
+        self.sounds.play_async(self.sounds.activation_sound)
         self.speaker.stop()
 
         # Escuchar comando
