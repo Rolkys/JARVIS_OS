@@ -123,6 +123,11 @@ class SkillManager:
             "cancelar alarma":self.cancel_alarm_skill,
             "temporizadores activos":self.list_timer_skill,
             "alarmas programadas":self.list_alarm_skill,
+
+            # ---- CONFIGURACION ----
+            "auto inicio": self.toggle_startup,
+            "iniciar con windows": self.toggle_startup,
+            "auto arranque": self.toggle_startup,
         }
         
         logger.info(f"Nivel 2 - Skills inicializado ({len(self.skills)} comandos disponibles)")
@@ -904,34 +909,13 @@ class SkillManager:
             'action': 'list_alarms'
         }
 
-# ==========================================
-# PRUEBA INDEPENDIENTE
-# ==========================================
-if __name__ == "__main__":
-    print("=" * 60)
-    print("JARVIS OS - NIVEL 2: Las Manos (Skills)")
-    print("=" * 60)
-    print()
-    
-    skills = SkillManager()
-    
-    test_commands = [
-        "que hora es",
-        "fecha",
-        "estado del sistema",
-        "mi ip",
-    ]
-    
-    for cmd in test_commands:
-        print(f"Comando: '{cmd}'")
-        result = skills.execute(cmd)
-        status = "OK" if result['success'] else "FAIL"
-        print(f"   {status}: {result['response']}")
-        print()
-    
-    print("Prueba completada")
-    print()
-    print("Comandos de sistema habilitados:")
-    print("   - reiniciar / reinicia")
-    print("   - apagar / apaga")
-    print("   - cancelar apagado / cancelar reinicio")
+    def toggle_startup(self, command: str) -> Dict[str, Any]:
+        """Activa o desactiva el inicio con Windows"""
+        from core.startup import StartupManager
+        startup = StartupManager()
+        response = startup.toggle()
+        return {
+            'success': True,
+            'response': response,
+            'action': 'startup'
+        }
