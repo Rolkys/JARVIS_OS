@@ -83,6 +83,12 @@ class SkillManager:
             "recordarme": self.set_reminder,
             "listar archivos": self.list_files,
             "archivos del escritorio": self.list_files,
+            "buscar notas": self.search_notes_skill,
+            "leer notas": self.read_notes_skill,
+            "eliminar nota": self.delete_note_skill,
+            "recordatorios pendientes": self.pending_reminders_skill,
+            "completar recordatorio": self.complete_reminder_skill,
+            "estadisticas": self.stats_skill,
             
             # ---- VOLUMEN ----
             "volumen": self.set_volume,
@@ -119,10 +125,10 @@ class SkillManager:
             "alarma": self.set_alarm_skill,
             "avisame en": self.set_timer_skill,
             "despertador": self.set_alarm_skill,
-            "cancelar temporizador":self.cancel_timer_skill,
-            "cancelar alarma":self.cancel_alarm_skill,
-            "temporizadores activos":self.list_timers_skill,
-            "alarmas programadas":self.list_alarms_skill,
+            "cancelar temporizador": self.cancel_timer_skill,
+            "cancelar alarma": self.cancel_alarm_skill,
+            "temporizadores activos": self.list_timers_skill,
+            "alarmas programadas": self.list_alarms_skill,
 
             # ---- CONFIGURACION ----
             "auto inicio": self.toggle_startup,
@@ -140,6 +146,13 @@ class SkillManager:
             "calculame": self.calculate_skill,
             "cuanto es": self.calculate_skill,
             "resuelve": self.calculate_skill,
+
+            # ---- CONVERSOR ----
+            "convierte": self.convert_skill,
+            "convertir": self.convert_skill,
+            "conversion": self.convert_skill,
+            "pasa": self.convert_skill,
+            "cuantos son": self.convert_skill,
         }
         
         logger.info(f"Nivel 2 - Skills inicializado ({len(self.skills)} comandos disponibles)")
@@ -560,7 +573,8 @@ class SkillManager:
             }
     
     def create_note(self, command: str) -> Dict[str, Any]:
-        """Crea una nota rapida en el escritorio"""
+        """Crea una nota en la base de datos"""
+        from core.database import Database
         note_text = command.replace("nota", "").replace("apunta", "").replace("anota", "").strip()
         
         if not note_text:
@@ -570,33 +584,18 @@ class SkillManager:
                 'action': 'note'
             }
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        desktop = os.path.expanduser("~/Desktop")
-        note_path = os.path.join(desktop, f"nota_jarvis_{timestamp}.txt")
+        db = Database()
+        note_id = db.add_note(note_text)
         
-        try:
-            with open(note_path, 'w', encoding='utf-8') as f:
-                f.write(f"Nota de JARVIS\n")
-                f.write(f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n")
-                f.write("-" * 40 + "\n")
-                f.write(note_text)
-            
-            os.startfile(note_path)
-            
-            return {
-                'success': True,
-                'response': "Nota creada y abierta",
-                'action': 'note'
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'response': f"Error al crear la nota: {e}",
-                'action': 'note'
-            }
+        return {
+            'success': True,
+            'response': f"Nota {note_id} guardada: {note_text}",
+            'action': 'note'
+        }
     
     def set_reminder(self, command: str) -> Dict[str, Any]:
-        """Guarda un recordatorio"""
+        """Guarda un recordatorio en la base de datos"""
+        from core.database import Database
         reminder_text = command.replace("recordatorio", "").replace("recordarme", "").strip()
         
         if not reminder_text:
@@ -606,24 +605,14 @@ class SkillManager:
                 'action': 'reminder'
             }
         
-        desktop = os.path.expanduser("~/Desktop")
-        reminder_path = os.path.join(desktop, "recordatorios_jarvis.txt")
+        db = Database()
+        reminder_id = db.add_reminder(reminder_text)
         
-        try:
-            with open(reminder_path, 'a', encoding='utf-8') as f:
-                f.write(f"[{datetime.now().strftime('%d/%m/%Y %H:%M')}] {reminder_text}\n")
-            
-            return {
-                'success': True,
-                'response': f"Recordatorio guardado: {reminder_text}",
-                'action': 'reminder'
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'response': f"Error al guardar: {e}",
-                'action': 'reminder'
-            }
+        return {
+            'success': True,
+            'response': f"Recordatorio {reminder_id} guardado: {reminder_text}",
+            'action': 'reminder'
+        }
     
     def list_files(self, command: str) -> Dict[str, Any]:
         """Lista archivos del escritorio"""
@@ -659,6 +648,150 @@ class SkillManager:
                 'response': f"Error al listar: {e}",
                 'action': 'list_files'
             }
+
+    def search_notes_skill(self, command: str) -> Dict[str, Any]:
+        """Busca en las notas"""
+        from core.database import Database
+        query = command.replace("buscar notas", "").strip()
+        
+        db = Database()
+        notes = db.search_notes(query)
+        
+        if not notes:
+            return {
+                'success': True,
+                'response': "No encontre notas con ese texto",
+                'action': 'search_notes'
+            }
+        
+        response = "Notas encontradas: "
+        for note in notes[:5]:
+            response += f"{note['id']}: {note['text'][:50]}..., "
+        
+        return {
+            'success': True,
+            'response': response.strip(', '),
+            'action': 'search_notes'
+        }
+
+    def read_notes_skill(self, command: str) -> Dict[str, Any]:
+        """Lee las ultimas notas"""
+        from core.database import Database
+        db = Database()
+        notes = db.get_notes(5)
+        
+        if not notes:
+            return {
+                'success': True,
+                'response': "No hay notas guardadas",
+                'action': 'read_notes'
+            }
+        
+        response = "Ultimas notas: "
+        for note in notes:
+            response += f"{note['id']}: {note['text'][:60]}..., "
+        
+        return {
+            'success': True,
+            'response': response.strip(', '),
+            'action': 'read_notes'
+        }
+
+    def delete_note_skill(self, command: str) -> Dict[str, Any]:
+        """Elimina una nota por ID"""
+        from core.database import Database
+        numbers = re.findall(r'\d+', command)
+        
+        if not numbers:
+            return {
+                'success': False,
+                'response': "Di el numero de nota a eliminar",
+                'action': 'delete_note'
+            }
+        
+        note_id = int(numbers[0])
+        db = Database()
+        
+        if db.delete_note(note_id):
+            return {
+                'success': True,
+                'response': f"Nota {note_id} eliminada",
+                'action': 'delete_note'
+            }
+        return {
+            'success': False,
+            'response': f"No encontre la nota {note_id}",
+            'action': 'delete_note'
+        }
+
+    def pending_reminders_skill(self, command: str) -> Dict[str, Any]:
+        """Lista recordatorios pendientes"""
+        from core.database import Database
+        db = Database()
+        reminders = db.get_reminders()
+        
+        if not reminders:
+            return {
+                'success': True,
+                'response': "No hay recordatorios pendientes",
+                'action': 'reminders'
+            }
+        
+        response = "Recordatorios pendientes: "
+        for rem in reminders:
+            response += f"{rem['id']}: {rem['text'][:50]}..., "
+        
+        return {
+            'success': True,
+            'response': response.strip(', '),
+            'action': 'reminders'
+        }
+
+    def complete_reminder_skill(self, command: str) -> Dict[str, Any]:
+        """Marca un recordatorio como completado"""
+        from core.database import Database
+        numbers = re.findall(r'\d+', command)
+        
+        if not numbers:
+            return {
+                'success': False,
+                'response': "Di el numero de recordatorio",
+                'action': 'complete_reminder'
+            }
+        
+        reminder_id = int(numbers[0])
+        db = Database()
+        
+        if db.mark_reminder_done(reminder_id):
+            return {
+                'success': True,
+                'response': f"Recordatorio {reminder_id} completado",
+                'action': 'complete_reminder'
+            }
+        return {
+            'success': False,
+            'response': f"No encontre el recordatorio {reminder_id}",
+            'action': 'complete_reminder'
+        }
+
+    def stats_skill(self, command: str) -> Dict[str, Any]:
+        """Muestra estadisticas de uso"""
+        from core.database import Database
+        db = Database()
+        stats = db.get_stats()
+        
+        response = (
+            f"Comandos ejecutados: {stats['total_commands']}. "
+            f"Exitosos: {stats['success_commands']}. "
+            f"Notas guardadas: {stats['total_notes']}. "
+            f"Recordatorios pendientes: {stats['pending_reminders']}."
+        )
+        
+        return {
+            'success': True,
+            'response': response,
+            'action': 'stats'
+        }
     
     # ==========================================
     # VOLUMEN
@@ -931,6 +1064,7 @@ class SkillManager:
             'response': response,
             'action': 'startup'
         }
+    
     def random_quote(self, command: str) -> Dict[str, Any]:
         """Devuelve una frase aleatoria"""
         from core.quotes import get_quote_manager
@@ -941,6 +1075,7 @@ class SkillManager:
             'response': response,
             'action': 'quote'
         }
+    
     def calculate_skill(self, command: str) -> Dict[str, Any]:
         """Calculadora por voz"""
         from core.calculator import Calculator
@@ -950,4 +1085,15 @@ class SkillManager:
             'success': True,
             'response': response,
             'action': 'calculate'
+        }
+
+    def convert_skill(self, command: str) -> Dict[str, Any]:
+        """Conversor de unidades"""
+        from core.converter import UnitConverter
+        conv = UnitConverter()
+        response = conv.parse_and_convert(command)
+        return {
+            'success': True,
+            'response': response,
+            'action': 'convert'
         }

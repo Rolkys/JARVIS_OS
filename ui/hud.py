@@ -79,7 +79,7 @@ class ArcReactor(QWidget):
         
         # Brillo central
         glow_gradient = QLinearGradient(center.x() - 10, center.y() - 10, 
-                                         center.x() + 10, center.y() + 10)
+                                        center.x() + 10, center.y() + 10)
         glow_gradient.setColorAt(0, QColor(255, 255, 255, 200))
         glow_gradient.setColorAt(1, QColor(0, 180, 255, 0))
         painter.setBrush(QBrush(glow_gradient))

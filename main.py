@@ -17,6 +17,7 @@ from core.speaker import Speaker
 from core.sounds import SoundEffects
 from core.timers import TimerManager
 from core.quotes import get_quote_manager
+from core.database import Database
 from ui.hud import StarkHUD
 from PySide6.QtWidgets import QApplocation
 
@@ -46,6 +47,7 @@ class JarvisOS:
         self.sounds = SoundEffects()
         self.timer_maganer = TimerManager(speaker=self.speaker, sounds=self.sounds)
         self.quotes = get_quote_manager()
+        self.db = Database()
         # Inicializar modulos en orden
         logger.info("Cargando modulos...")
 
@@ -74,6 +76,8 @@ class JarvisOS:
         
         skill_result = self.skill_manager.execute(text)
         
+        self.db.save_conversation("user", text)
+
         if skill_result.get('success'):
             response = skill_result.get('response', 'Accion completada')
             self.sounds.play_async(self.sounds.command_success)
@@ -89,6 +93,13 @@ class JarvisOS:
         
         if response:
             logger.info(f"JARVIS: {response}")
+            self.db.save_conversation("assistant", response)
+            self.db.log_command(
+                text,
+                action=skill_result.get('action'),
+                success=skill_result.get('success'),
+                response=response
+            )
             self.speaker.speak(response)
         
     def on_wake(self):
@@ -133,6 +144,7 @@ class JarvisOS:
         self.speaker.speak(farewell)
         self.speaker.wait_until_done()
         self.waker.stop_listening()
+        self.db.close()
         self.mqtt.disconnect()
 
     
