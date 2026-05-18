@@ -172,6 +172,17 @@ class SkillManager:
             "ventana activa": self.where_am_i_skill,
             "estoy programando": self.am_i_coding_skill,
             "estoy escuchando musica": self.am_i_listening_skill,
+
+            # ---- DESARROLLADOR ----
+            "abrir proyecto": self.open_project_skill,
+            "nuevo proyecto": self.new_project_skill,
+            "crear proyecto": self.new_project_skill,
+            "lista proyectos": self.list_projects_skill,
+            "listar proyectos": self.list_projects_skill,
+            "ejecutar script": self.run_script_skill,
+            "correr script": self.run_script_skill,
+            "git": self.git_skill,
+            "terminal desarrollador": self.dev_terminal_skill,
         }
 
         logger.info(f"Nivel 2 - Skills inicializado ({len(self.skills)} comandos)")
@@ -684,3 +695,67 @@ class SkillManager:
         if tracker.is_listening_music():
             return {'success': True, 'response': "Si, estas en Spotify. Disfruta de la musica, señor.", 'action': 'music_check'}
         return {'success': True, 'response': "No estas escuchando musica ahora.", 'action': 'music_check'}
+
+    # ==========================================
+    # DESARROLLADOR
+    # ==========================================
+
+    def open_project_skill(self, command: str) -> Dict[str, Any]:
+        """Abre un proyecto en VS Code"""
+        from core.developer import DeveloperMode
+        dev = DeveloperMode()
+        project_name = command.replace("abrir proyecto", "").strip()
+        if not project_name:
+            return {'success': False, 'response': "Di el nombre del proyecto", 'action': 'open_project'}
+        result = dev.open_project(project_name)
+        return result
+
+    def new_project_skill(self, command: str) -> Dict[str, Any]:
+        """Crea un nuevo proyecto"""
+        from core.developer import DeveloperMode
+        dev = DeveloperMode()
+
+        project_name = command.replace("nuevo proyecto", "").replace("crear proyecto", "").strip()
+
+        if not project_name:
+            return {'success': False, 'response': "Di el nombre del proyecto", 'action': 'new_project'}
+
+        project_type = "python"
+        if "web" in command.lower() or "html" in command.lower():
+            project_type = "web"
+        elif "react" in command.lower():
+            project_type = "react"
+
+        result = dev.new_project(project_name, project_type)
+        return result
+
+    def list_projects_skill(self, command: str) -> Dict[str, Any]:
+        """Lista proyectos disponibles"""
+        from core.developer import DeveloperMode
+        dev = DeveloperMode()
+        result = dev.list_projects()
+        return result
+
+    def run_script_skill(self, command: str) -> Dict[str, Any]:
+        """Ejecuta un script de Python"""
+        from core.developer import DeveloperMode
+        dev = DeveloperMode()
+        script_name = command.replace("ejecutar script", "").replace("correr script", "").strip()
+        if not script_name:
+            return {'success': False, 'response': "Di el nombre del script", 'action': 'run_script'}
+        result = dev.run_script(script_name)
+        return result
+
+    def git_skill(self, command: str) -> Dict[str, Any]:
+        """Ejecuta comandos de Git"""
+        from core.developer import DeveloperMode
+        dev = DeveloperMode()
+        result = dev.git_command(command)
+        return result
+
+    def dev_terminal_skill(self, command: str) -> Dict[str, Any]:
+        """Abre terminal de desarrollador"""
+        from core.developer import DeveloperMode
+        dev = DeveloperMode()
+        result = dev.open_terminal()
+        return result
