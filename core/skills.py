@@ -1097,15 +1097,7 @@ class SkillManager:
 
     def convert_skill(self, command: str) -> Dict[str, Any]:
         """Conversor de unidades"""
-        from core.converter import UnitConverter
-        conv = UnitConverter()
-        response = conv.parse_and_convert(command)
-        return {
-            'success': True,
-            'response': response,
-            'action': 'convert'
-        }
-    
+        pass
     def read_news_skill(self, command: str) -> Dict[str, Any]:
         """Lee noticias por categoria"""
         from core.news import NewsReader
