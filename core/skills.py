@@ -7,6 +7,8 @@ import os
 import re
 import logging
 import webbrowser
+from http.client import responses
+
 import psutil
 import socket
 from datetime import datetime
@@ -153,6 +155,12 @@ class SkillManager:
             "conversion": self.convert_skill,
             "pasa": self.convert_skill,
             "cuantos son": self.convert_skill,
+
+            # ---- NOTICIAS ----
+            "noticias": self.read_news_skill,
+            "noticas de": self.read_news_skill,
+            "lee las noticias": self.read_news_skill,
+            "categorias noticias": self.news_categories_skill,
         }
         
         logger.info(f"Nivel 2 - Skills inicializado ({len(self.skills)} comandos disponibles)")
@@ -1096,4 +1104,40 @@ class SkillManager:
             'success': True,
             'response': response,
             'action': 'convert'
+        }
+    
+    def read_news_skill(self, command: str) -> Dict[str, Any]:
+        """Lee noticias por categoria"""
+        from core.news import NewsReader
+
+        news = NewsReader()
+        command_lower = command.lower()
+
+        # Detectar categoria
+        for category in news.feeds.keys():
+            if category in command_lower:
+                response = news.format_for_speech(category)
+                return {
+                    'success': True,
+                    'response': response,
+                    'action': 'news'
+                }
+
+        # Por defecto, noticias nacionales
+        response = news.format_for_speech("nacional")
+        return {
+            'success': True,
+            'response': response,
+            'action': 'news'
+        }
+
+    def news_categories_skill(self, command: str) -> Dict[str, Any]:
+        """Lista categorias de noticias"""
+        from core.news import NewsReader
+        news = NewsReader()
+        response = news.list_categories()
+        return {
+            'success': True,
+            'response': response,
+            'action': 'news_categories'
         }
