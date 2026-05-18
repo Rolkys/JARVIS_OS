@@ -18,6 +18,7 @@ from core.waker import Waker
 from core.database import Database
 from core.quotes import get_quote_manager
 from core.window_tracker import WindowTracker
+from core.dashboard import Dashboard
 from ui.hud import StarkHUD
 from PySide6.QtWidgets import QApplication
 
@@ -49,6 +50,8 @@ class JarvisOS:
         self.db = Database()
         self.quotes = get_quote_manager()
         self.window_tracker = WindowTracker()
+        self.dashboard = Dashboard(jarvis_instance=self)
+        self.dashboard.start()
 
         self.skill_manager = SkillManager(
             mqtt_handler=self.mqtt,
