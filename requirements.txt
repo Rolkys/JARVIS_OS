@@ -10,4 +10,4 @@ psutil>=5.9.0
 openwakeword>=0.5.0
 piper-tts>=1.2.0
 sympy>=1.12
-fedparser>=6.0
+feedparser>=6.0

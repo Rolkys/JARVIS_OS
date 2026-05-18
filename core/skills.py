@@ -7,13 +7,13 @@ import os
 import re
 import logging
 import webbrowser
-from http.client import responses
-
 import psutil
 import socket
 from datetime import datetime
 from typing import Dict, Any, Optional
 from core.mqtt_handler import MQTTHandler
+from core.database import Database
+from core.quotes import get_quote_manager
 
 logger = logging.getLogger("JARVIS.Skills")
 
@@ -22,17 +22,21 @@ class SkillManager:
     Nivel 2: Las Manos
     Ejecuta acciones en Windows.
     """
-    
-    def __init__(self, mqtt_handler: Optional[MQTTHandler] = None, config_path: str = "config.yaml"):
+
+    def __init__(self, mqtt_handler=None, timer_manager=None, config_path="config.yaml"):
         import yaml
-        
+
         with open(config_path, 'r', encoding='utf-8') as f:
             self.config = yaml.safe_load(f)
-        
-        self.mqtt = mqtt_handler if mqtt_handler else MQTTHandler(config_path)
+
+        self.mqtt = mqtt_handler or MQTTHandler(config_path)
         if not mqtt_handler:
             self.mqtt.connect()
-        
+
+        self.timer_manager = timer_manager
+        self.db = Database()
+        self.quotes = get_quote_manager()
+
         self.skills = {
             # ---- APLICACIONES ----
             "abrir": self.open_application,
@@ -41,7 +45,7 @@ class SkillManager:
             "cerrar": self.close_application,
             "cierra": self.close_application,
             "discord": self.open_discord,
-            
+
             # ---- SISTEMA ----
             "reiniciar": self.restart_system,
             "reinicia": self.restart_system,
@@ -49,7 +53,7 @@ class SkillManager:
             "apaga": self.shutdown_system,
             "cancelar apagado": self.cancel_shutdown,
             "cancelar reinicio": self.cancel_shutdown,
-            
+
             # ---- INFORMACION ----
             "hora": self.tell_time,
             "que hora": self.tell_time,
@@ -64,7 +68,7 @@ class SkillManager:
             "mi ip": self.get_ip,
             "procesos": self.list_processes,
             "que esta consumiendo": self.list_processes,
-            
+
             # ---- WEB ----
             "buscar": self.search_web,
             "busca": self.search_web,
@@ -74,7 +78,7 @@ class SkillManager:
             "ir a": self.open_website,
             "youtube": self.open_youtube,
             "github": self.open_github,
-            
+
             # ---- ARCHIVOS ----
             "crear carpeta": self.create_folder,
             "nueva carpeta": self.create_folder,
@@ -91,7 +95,7 @@ class SkillManager:
             "recordatorios pendientes": self.pending_reminders_skill,
             "completar recordatorio": self.complete_reminder_skill,
             "estadisticas": self.stats_skill,
-            
+
             # ---- VOLUMEN ----
             "volumen": self.set_volume,
             "pon volumen": self.set_volume,
@@ -106,7 +110,7 @@ class SkillManager:
             "silenciar": self.mute_volume,
             "mutear": self.mute_volume,
             "quitar silencio": self.mute_volume,
-            
+
             # ---- MULTIMEDIA ----
             "musica": self.play_music,
             "spotify": self.play_music,
@@ -116,7 +120,7 @@ class SkillManager:
             "pausar": self.pause_media,
             "reanudar": self.resume_media,
             "play": self.resume_media,
-            
+
             # ---- CAPTURA ----
             "captura": self.screenshot,
             "capturar pantalla": self.screenshot,
@@ -158,661 +162,295 @@ class SkillManager:
 
             # ---- NOTICIAS ----
             "noticias": self.read_news_skill,
-            "noticas de": self.read_news_skill,
+            "noticias de": self.read_news_skill,
             "lee las noticias": self.read_news_skill,
             "categorias noticias": self.news_categories_skill,
+
+            # ---- VENTANA ACTIVA ----
+            "donde estoy": self.where_am_i_skill,
+            "que aplicacion": self.where_am_i_skill,
+            "ventana activa": self.where_am_i_skill,
+            "estoy programando": self.am_i_coding_skill,
+            "estoy escuchando musica": self.am_i_listening_skill,
         }
-        
-        logger.info(f"Nivel 2 - Skills inicializado ({len(self.skills)} comandos disponibles)")
-    
+
+        logger.info(f"Nivel 2 - Skills inicializado ({len(self.skills)} comandos)")
+
     def execute(self, command_text: str) -> Dict[str, Any]:
-        """
-        Intenta ejecutar un comando.
-        Retorna: {'success': bool, 'response': str, 'action': str}
-        """
         if not command_text:
-            return {
-                'success': False,
-                'response': 'No entendi el comando',
-                'action': 'unknown'
-            }
-        
+            return {'success': False, 'response': 'No entendi el comando', 'action': 'unknown'}
+
         command_lower = command_text.lower().strip()
-        
         sorted_skills = sorted(self.skills.items(), key=lambda x: len(x[0]), reverse=True)
-        
+
         for keyword, skill_func in sorted_skills:
             if command_lower.startswith(keyword) or f" {keyword} " in f" {command_lower} ":
                 try:
                     result = skill_func(command_text)
-                    
                     self.mqtt.publish('command', {
                         'command': command_text,
                         'action': result.get('action', keyword),
                         'success': result.get('success', False),
                         'response': result.get('response', '')
                     })
-                    
                     return result
-                    
                 except Exception as e:
-                    logger.error(f"Error ejecutando '{keyword}': {e}")
-                    return {
-                        'success': False,
-                        'response': f"Error al ejecutar la accion: {str(e)}",
-                        'action': keyword
-                    }
-        
-        return {
-            'success': False,
-            'response': None,
-            'action': 'unknown'
-        }
-    
+                    logger.error(f"Error en '{keyword}': {e}")
+                    return {'success': False, 'response': f"Error: {e}", 'action': keyword}
+
+        return {'success': False, 'response': None, 'action': 'unknown'}
+
     def add_skill(self, keyword: str, func):
-        """Anade una nueva skill dinamicamente"""
         self.skills[keyword.lower()] = func
-        logger.info(f"Nueva skill registrada: {keyword}")
-    
+
     # ==========================================
     # APLICACIONES
     # ==========================================
-    
+
     def open_application(self, command: str) -> Dict[str, Any]:
-        """Abre aplicaciones de Windows"""
         apps = {
-            "navegador": "start chrome",
-            "chrome": "start chrome",
-            "firefox": "start firefox",
-            "edge": "start msedge",
-            "brave": "start brave",
-            "calculadora": "calc",
-            "bloc de notas": "notepad",
-            "notepad": "notepad",
-            "terminal": "wt",
-            "cmd": "start cmd",
-            "powershell": "start powershell",
-            "explorador": "explorer",
-            "explorador de archivos": "explorer",
-            "configuracion": "start ms-settings:",
-            "administrador de tareas": "taskmgr",
-            "word": "start winword",
-            "excel": "start excel",
-            "powerpoint": "start powerpnt",
-            "visual studio code": "code",
-            "vscode": "code",
-            "discord": "start discord",
-            "whatsapp": "start whatsapp",
-            "spotify": "start spotify",
-            "tienda": "start ms-windows-store:",
-            "paint": "mspaint",
-            "correo": "start outlookmail:",
+            "navegador": "start chrome", "chrome": "start chrome",
+            "firefox": "start firefox", "edge": "start msedge",
+            "calculadora": "calc", "bloc de notas": "notepad",
+            "notepad": "notepad", "terminal": "wt", "cmd": "start cmd",
+            "powershell": "start powershell", "explorador": "explorer",
+            "configuracion": "start ms-settings:", "administrador de tareas": "taskmgr",
+            "word": "start winword", "excel": "start excel",
+            "powerpoint": "start powerpnt", "vscode": "code",
+            "discord": "start discord", "whatsapp": "start whatsapp",
+            "spotify": "start spotify", "tienda": "start ms-windows-store:",
+            "paint": "mspaint", "correo": "start outlookmail:",
         }
-        
+
         command_lower = command.lower()
-        
+
         for app_name, app_cmd in apps.items():
             if app_name in command_lower:
                 try:
                     subprocess.Popen(app_cmd, shell=True)
-                    return {
-                        'success': True,
-                        'response': f"Abriendo {app_name}",
-                        'action': 'open_app'
-                    }
-                except Exception as e:
-                    return {
-                        'success': False,
-                        'response': f"No pude abrir {app_name}",
-                        'action': 'open_app'
-                    }
-        
-        app_name = command.replace("abrir ", "").replace("abre ", "").replace("iniciar ", "").strip()
-        if app_name:
-            try:
-                subprocess.Popen(f"start {app_name}", shell=True)
-                return {
-                    'success': True,
-                    'response': f"Intentando abrir {app_name}",
-                    'action': 'open_app'
-                }
-            except:
-                pass
-        
-        return {
-            'success': False,
-            'response': "No encontre esa aplicacion",
-            'action': 'open_app'
-        }
-    
+                    return {'success': True, 'response': f"Abriendo {app_name}", 'action': 'open_app'}
+                except:
+                    return {'success': False, 'response': f"No pude abrir {app_name}", 'action': 'open_app'}
+
+        return {'success': False, 'response': "No encontre esa aplicacion", 'action': 'open_app'}
+
     def open_discord(self, command: str = "") -> Dict[str, Any]:
-        """Abre Discord"""
         subprocess.Popen("start discord", shell=True)
-        return {
-            'success': True,
-            'response': "Abriendo Discord, senor",
-            'action': 'open_discord'
-        }
-    
+        return {'success': True, 'response': "Abriendo Discord, señor", 'action': 'open_discord'}
+
     def close_application(self, command: str) -> Dict[str, Any]:
-        """Cierra aplicaciones por nombre"""
         app_processes = {
-            "chrome": "chrome.exe",
-            "navegador": "chrome.exe",
-            "firefox": "firefox.exe",
-            "edge": "msedge.exe",
-            "brave": "brave.exe",
-            "notepad": "notepad.exe",
-            "bloc de notas": "notepad.exe",
-            "spotify": "spotify.exe",
-            "discord": "discord.exe",
-            "calculadora": "calculator.exe",
-            "terminal": "WindowsTerminal.exe",
-            "word": "winword.exe",
-            "excel": "excel.exe",
-            "powerpoint": "powerpnt.exe",
-            "explorador": "explorer.exe",
+            "chrome": "chrome.exe", "navegador": "chrome.exe",
+            "firefox": "firefox.exe", "edge": "msedge.exe",
+            "notepad": "notepad.exe", "bloc de notas": "notepad.exe",
+            "spotify": "spotify.exe", "discord": "discord.exe",
+            "calculadora": "calculator.exe", "terminal": "WindowsTerminal.exe",
+            "word": "winword.exe", "excel": "excel.exe",
+            "powerpoint": "powerpnt.exe", "explorador": "explorer.exe",
             "whatsapp": "whatsapp.exe",
-            "teams": "teams.exe",
         }
-        
+
         command_lower = command.lower()
-        
+
         for app_name, process_name in app_processes.items():
             if app_name in command_lower:
                 result = os.system(f"taskkill /f /im {process_name} 2>nul")
                 if result == 0:
-                    return {
-                        'success': True,
-                        'response': f"{app_name} cerrado",
-                        'action': 'close_app'
-                    }
-                else:
-                    return {
-                        'success': True,
-                        'response': f"{app_name} no estaba abierto",
-                        'action': 'close_app'
-                    }
-        
-        return {
-            'success': False,
-            'response': "No pude identificar que aplicacion cerrar",
-            'action': 'close_app'
-        }
-    
+                    return {'success': True, 'response': f"{app_name} cerrado", 'action': 'close_app'}
+                return {'success': True, 'response': f"{app_name} no estaba abierto", 'action': 'close_app'}
+
+        return {'success': False, 'response': "No pude identificar que cerrar", 'action': 'close_app'}
+
     # ==========================================
     # SISTEMA
     # ==========================================
-    
+
     def shutdown_system(self, command: str) -> Dict[str, Any]:
-        """Apaga el sistema con cuenta regresiva de 30 segundos"""
         os.system("shutdown /s /t 30")
-        return {
-            'success': True,
-            'response': "Apagando el sistema en 30 segundos. Di 'cancelar apagado' para detener.",
-            'action': 'shutdown'
-        }
-    
+        return {'success': True, 'response': "Apagando en 30 segundos. Di 'cancelar apagado' para detener.", 'action': 'shutdown'}
+
     def restart_system(self, command: str) -> Dict[str, Any]:
-        """Reinicia el sistema con cuenta regresiva de 30 segundos"""
         os.system("shutdown /r /t 30")
-        return {
-            'success': True,
-            'response': "Reiniciando en 30 segundos. Di 'cancelar reinicio' para detener.",
-            'action': 'restart'
-        }
-    
+        return {'success': True, 'response': "Reiniciando en 30 segundos. Di 'cancelar reinicio' para detener.", 'action': 'restart'}
+
     def cancel_shutdown(self, command: str) -> Dict[str, Any]:
-        """Cancela apagado o reinicio programado"""
         os.system("shutdown /a")
-        return {
-            'success': True,
-            'response': "Apagado/reinicio cancelado",
-            'action': 'cancel_shutdown'
-        }
-    
+        return {'success': True, 'response': "Apagado/reinicio cancelado", 'action': 'cancel_shutdown'}
+
     # ==========================================
     # INFORMACION
     # ==========================================
-    
+
     def tell_time(self, command: str) -> Dict[str, Any]:
-        """Dice la hora actual"""
         now = datetime.now()
-        hora = now.strftime("%H:%M")
-        
-        return {
-            'success': True,
-            'response': f"Son las {hora}",
-            'action': 'time'
-        }
-    
+        return {'success': True, 'response': f"Son las {now.strftime('%H:%M')}", 'action': 'time'}
+
     def tell_date(self, command: str) -> Dict[str, Any]:
-        """Dice la fecha actual en espanol"""
         now = datetime.now()
-        
         dias = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
         meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
-                "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-        
-        dia_semana = dias[now.weekday()]
-        dia = now.day
-        mes = meses[now.month - 1]
-        año = now.year
-        
-        return {
-            'success': True,
-            'response': f"Hoy es {dia_semana} {dia} de {mes} de {año}",
-            'action': 'date'
-        }
-    
+                 "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+        return {'success': True, 'response': f"Hoy es {dias[now.weekday()]} {now.day} de {meses[now.month-1]} de {now.year}", 'action': 'date'}
+
     def system_info(self, command: str) -> Dict[str, Any]:
-        """Informacion del sistema"""
         cpu = psutil.cpu_percent(interval=1)
         ram = psutil.virtual_memory()
         disk = psutil.disk_usage('C:')
-        
-        info_parts = []
-        
-        if "cpu" in command.lower() or "procesador" in command.lower():
-            info_parts.append(f"CPU al {cpu}%")
-        elif "ram" in command.lower() or "memoria" in command.lower():
-            info_parts.append(f"RAM: {ram.percent}% usada ({ram.used // (1024**3)}GB de {ram.total // (1024**3)}GB)")
-        elif "disco" in command.lower() or "almacenamiento" in command.lower():
-            info_parts.append(f"Disco C: {disk.percent}% usado ({disk.used // (1024**3)}GB de {disk.total // (1024**3)}GB)")
-        else:
-            info_parts.append(f"CPU: {cpu}%")
-            info_parts.append(f"RAM: {ram.percent}%")
-            info_parts.append(f"Disco: {disk.percent}%")
-        
-        return {
-            'success': True,
-            'response': " | ".join(info_parts),
-            'action': 'sysinfo'
-        }
-    
+        info = f"CPU: {cpu}% | RAM: {ram.percent}% | Disco: {disk.percent}%"
+        return {'success': True, 'response': info, 'action': 'sysinfo'}
+
     def get_ip(self, command: str) -> Dict[str, Any]:
-        """Obtiene la IP local"""
         try:
             hostname = socket.gethostname()
             ip = socket.gethostbyname(hostname)
-            return {
-                'success': True,
-                'response': f"Mi IP local es {ip}",
-                'action': 'ip'
-            }
+            return {'success': True, 'response': f"Mi IP local es {ip}", 'action': 'ip'}
         except:
-            return {
-                'success': False,
-                'response': "No pude obtener la IP",
-                'action': 'ip'
-            }
-    
+            return {'success': False, 'response': "No pude obtener la IP", 'action': 'ip'}
+
     def list_processes(self, command: str) -> Dict[str, Any]:
-        """Lista los procesos que mas consumen"""
         processes = []
-        for proc in psutil.process_iter(['name', 'cpu_percent', 'memory_percent']):
+        for proc in psutil.process_iter(['name', 'cpu_percent']):
             try:
                 processes.append(proc.info)
             except:
                 pass
-        
         processes.sort(key=lambda x: x['cpu_percent'] if x['cpu_percent'] else 0, reverse=True)
         top_5 = processes[:5]
-        
-        info = "Top 5 procesos: "
-        for p in top_5:
-            info += f"{p['name']} ({p['cpu_percent']:.1f}%), "
-        
-        return {
-            'success': True,
-            'response': info.strip(', '),
-            'action': 'processes'
-        }
-    
+        info = "Top 5: " + ", ".join([f"{p['name']} ({p['cpu_percent']:.1f}%)" for p in top_5])
+        return {'success': True, 'response': info, 'action': 'processes'}
+
     # ==========================================
     # WEB
     # ==========================================
-    
+
     def open_website(self, command: str) -> Dict[str, Any]:
-        """Abre una pagina web"""
         url = command
-        for prefix in ["navegar", "abrir web", "abre", "ir a"]:
+        for prefix in ["navegar", "abrir web", "ir a"]:
             url = url.replace(prefix, "")
         url = url.strip()
-        
         if not url.startswith("http"):
             url = f"https://{url}"
-        
         webbrowser.open(url)
-        return {
-            'success': True,
-            'response': f"Abriendo {url}",
-            'action': 'web'
-        }
-    
+        return {'success': True, 'response': f"Abriendo {url}", 'action': 'web'}
+
     def search_web(self, command: str) -> Dict[str, Any]:
-        """Busca en Google"""
-        query = command
-        for prefix in ["buscar", "busca", "google", "busca en google"]:
-            query = query.replace(prefix, "")
-        query = query.strip()
-        
+        query = command.replace("buscar", "").replace("busca", "").replace("google", "").strip()
         if query:
             webbrowser.open(f"https://www.google.com/search?q={query}")
-            return {
-                'success': True,
-                'response': f"Buscando '{query}'",
-                'action': 'search'
-            }
-        return {
-            'success': False,
-            'response': "Que quieres que busque?",
-            'action': 'search'
-        }
-    
+            return {'success': True, 'response': f"Buscando '{query}'", 'action': 'search'}
+        return {'success': False, 'response': "Que quieres que busque?", 'action': 'search'}
+
     def open_youtube(self, command: str) -> Dict[str, Any]:
-        """Busca en YouTube"""
         query = command.replace("youtube", "").strip()
-        
         if query:
             webbrowser.open(f"https://www.youtube.com/results?search_query={query}")
-            return {
-                'success': True,
-                'response': f"Buscando '{query}' en YouTube",
-                'action': 'youtube'
-            }
-        else:
-            webbrowser.open("https://www.youtube.com")
-            return {
-                'success': True,
-                'response': "Abriendo YouTube",
-                'action': 'youtube'
-            }
-    
+            return {'success': True, 'response': f"Buscando en YouTube", 'action': 'youtube'}
+        webbrowser.open("https://www.youtube.com")
+        return {'success': True, 'response': "Abriendo YouTube", 'action': 'youtube'}
+
     def open_github(self, command: str) -> Dict[str, Any]:
-        """Abre GitHub"""
         query = command.replace("github", "").strip()
-        
         if query:
             webbrowser.open(f"https://github.com/search?q={query}")
-            return {
-                'success': True,
-                'response': f"Buscando '{query}' en GitHub",
-                'action': 'github'
-            }
-        else:
-            webbrowser.open("https://github.com")
-            return {
-                'success': True,
-                'response': "Abriendo GitHub",
-                'action': 'github'
-            }
-    
+            return {'success': True, 'response': f"Buscando en GitHub", 'action': 'github'}
+        webbrowser.open("https://github.com")
+        return {'success': True, 'response': "Abriendo GitHub", 'action': 'github'}
+
     # ==========================================
     # ARCHIVOS
     # ==========================================
-    
+
     def create_folder(self, command: str) -> Dict[str, Any]:
-        """Crea una carpeta en el escritorio"""
         folder_name = command.replace("crear carpeta", "").replace("nueva carpeta", "").strip()
-        
         if not folder_name:
-            return {
-                'success': False,
-                'response': "Necesito un nombre para la carpeta",
-                'action': 'create_folder'
-            }
-        
+            return {'success': False, 'response': "Necesito un nombre", 'action': 'create_folder'}
         desktop = os.path.expanduser("~/Desktop")
         folder_path = os.path.join(desktop, folder_name)
-        
         try:
             os.makedirs(folder_path, exist_ok=True)
-            return {
-                'success': True,
-                'response': f"Carpeta '{folder_name}' creada en el escritorio",
-                'action': 'create_folder'
-            }
+            return {'success': True, 'response': f"Carpeta creada: {folder_name}", 'action': 'create_folder'}
         except Exception as e:
-            return {
-                'success': False,
-                'response': f"No pude crear la carpeta: {e}",
-                'action': 'create_folder'
-            }
-    
+            return {'success': False, 'response': f"Error: {e}", 'action': 'create_folder'}
+
     def create_note(self, command: str) -> Dict[str, Any]:
-        """Crea una nota en la base de datos"""
-        from core.database import Database
         note_text = command.replace("nota", "").replace("apunta", "").replace("anota", "").strip()
-        
         if not note_text:
-            return {
-                'success': False,
-                'response': "Que quieres que apunte?",
-                'action': 'note'
-            }
-        
-        db = Database()
-        note_id = db.add_note(note_text)
-        
-        return {
-            'success': True,
-            'response': f"Nota {note_id} guardada: {note_text}",
-            'action': 'note'
-        }
-    
+            return {'success': False, 'response': "Que quieres que apunte?", 'action': 'note'}
+        note_id = self.db.add_note(note_text)
+        return {'success': True, 'response': f"Nota {note_id} guardada", 'action': 'note'}
+
     def set_reminder(self, command: str) -> Dict[str, Any]:
-        """Guarda un recordatorio en la base de datos"""
-        from core.database import Database
         reminder_text = command.replace("recordatorio", "").replace("recordarme", "").strip()
-        
         if not reminder_text:
-            return {
-                'success': False,
-                'response': "Que quieres que te recuerde?",
-                'action': 'reminder'
-            }
-        
-        db = Database()
-        reminder_id = db.add_reminder(reminder_text)
-        
-        return {
-            'success': True,
-            'response': f"Recordatorio {reminder_id} guardado: {reminder_text}",
-            'action': 'reminder'
-        }
-    
+            return {'success': False, 'response': "Que quieres que te recuerde?", 'action': 'reminder'}
+        reminder_id = self.db.add_reminder(reminder_text)
+        return {'success': True, 'response': f"Recordatorio {reminder_id} guardado", 'action': 'reminder'}
+
     def list_files(self, command: str) -> Dict[str, Any]:
-        """Lista archivos del escritorio"""
         target = os.path.expanduser("~/Desktop")
-        
         if "documentos" in command.lower():
             target = os.path.expanduser("~/Documents")
         elif "descargas" in command.lower():
             target = os.path.expanduser("~/Downloads")
-        
         try:
             files = os.listdir(target)
-            count = len(files)
-            
-            files_with_dates = []
-            for f in files:
-                path = os.path.join(target, f)
-                if os.path.isfile(path):
-                    mtime = os.path.getmtime(path)
-                    files_with_dates.append((f, mtime))
-            
-            files_with_dates.sort(key=lambda x: x[1], reverse=True)
-            recent = [f[0] for f in files_with_dates[:5]]
-            
-            return {
-                'success': True,
-                'response': f"Hay {count} archivos. Mas recientes: {', '.join(recent)}",
-                'action': 'list_files'
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'response': f"Error al listar: {e}",
-                'action': 'list_files'
-            }
+            return {'success': True, 'response': f"Hay {len(files)} archivos en la carpeta", 'action': 'list_files'}
+        except:
+            return {'success': False, 'response': "No pude listar los archivos", 'action': 'list_files'}
 
     def search_notes_skill(self, command: str) -> Dict[str, Any]:
-        """Busca en las notas"""
-        from core.database import Database
         query = command.replace("buscar notas", "").strip()
-        
-        db = Database()
-        notes = db.search_notes(query)
-        
+        notes = self.db.search_notes(query)
         if not notes:
-            return {
-                'success': True,
-                'response': "No encontre notas con ese texto",
-                'action': 'search_notes'
-            }
-        
-        response = "Notas encontradas: "
-        for note in notes[:5]:
-            response += f"{note['id']}: {note['text'][:50]}..., "
-        
-        return {
-            'success': True,
-            'response': response.strip(', '),
-            'action': 'search_notes'
-        }
+            return {'success': True, 'response': "No encontre notas", 'action': 'search_notes'}
+        response = "Notas: " + ", ".join([f"{n['id']}: {n['text'][:50]}" for n in notes[:5]])
+        return {'success': True, 'response': response, 'action': 'search_notes'}
 
     def read_notes_skill(self, command: str) -> Dict[str, Any]:
-        """Lee las ultimas notas"""
-        from core.database import Database
-        db = Database()
-        notes = db.get_notes(5)
-        
+        notes = self.db.get_notes(5)
         if not notes:
-            return {
-                'success': True,
-                'response': "No hay notas guardadas",
-                'action': 'read_notes'
-            }
-        
-        response = "Ultimas notas: "
-        for note in notes:
-            response += f"{note['id']}: {note['text'][:60]}..., "
-        
-        return {
-            'success': True,
-            'response': response.strip(', '),
-            'action': 'read_notes'
-        }
+            return {'success': True, 'response': "No hay notas", 'action': 'read_notes'}
+        response = "Notas: " + ", ".join([f"{n['id']}: {n['text'][:60]}" for n in notes])
+        return {'success': True, 'response': response, 'action': 'read_notes'}
 
     def delete_note_skill(self, command: str) -> Dict[str, Any]:
-        """Elimina una nota por ID"""
-        from core.database import Database
         numbers = re.findall(r'\d+', command)
-        
         if not numbers:
-            return {
-                'success': False,
-                'response': "Di el numero de nota a eliminar",
-                'action': 'delete_note'
-            }
-        
+            return {'success': False, 'response': "Di el numero de nota", 'action': 'delete_note'}
         note_id = int(numbers[0])
-        db = Database()
-        
-        if db.delete_note(note_id):
-            return {
-                'success': True,
-                'response': f"Nota {note_id} eliminada",
-                'action': 'delete_note'
-            }
-        return {
-            'success': False,
-            'response': f"No encontre la nota {note_id}",
-            'action': 'delete_note'
-        }
+        if self.db.delete_note(note_id):
+            return {'success': True, 'response': f"Nota {note_id} eliminada", 'action': 'delete_note'}
+        return {'success': False, 'response': f"No encontre la nota {note_id}", 'action': 'delete_note'}
 
     def pending_reminders_skill(self, command: str) -> Dict[str, Any]:
-        """Lista recordatorios pendientes"""
-        from core.database import Database
-        db = Database()
-        reminders = db.get_reminders()
-        
+        reminders = self.db.get_reminders()
         if not reminders:
-            return {
-                'success': True,
-                'response': "No hay recordatorios pendientes",
-                'action': 'reminders'
-            }
-        
-        response = "Recordatorios pendientes: "
-        for rem in reminders:
-            response += f"{rem['id']}: {rem['text'][:50]}..., "
-        
-        return {
-            'success': True,
-            'response': response.strip(', '),
-            'action': 'reminders'
-        }
+            return {'success': True, 'response': "No hay recordatorios pendientes", 'action': 'reminders'}
+        response = "Pendientes: " + ", ".join([f"{r['id']}: {r['text'][:50]}" for r in reminders])
+        return {'success': True, 'response': response, 'action': 'reminders'}
 
     def complete_reminder_skill(self, command: str) -> Dict[str, Any]:
-        """Marca un recordatorio como completado"""
-        from core.database import Database
         numbers = re.findall(r'\d+', command)
-        
         if not numbers:
-            return {
-                'success': False,
-                'response': "Di el numero de recordatorio",
-                'action': 'complete_reminder'
-            }
-        
+            return {'success': False, 'response': "Di el numero de recordatorio", 'action': 'complete_reminder'}
         reminder_id = int(numbers[0])
-        db = Database()
-        
-        if db.mark_reminder_done(reminder_id):
-            return {
-                'success': True,
-                'response': f"Recordatorio {reminder_id} completado",
-                'action': 'complete_reminder'
-            }
-        return {
-            'success': False,
-            'response': f"No encontre el recordatorio {reminder_id}",
-            'action': 'complete_reminder'
-        }
+        if self.db.mark_reminder_done(reminder_id):
+            return {'success': True, 'response': f"Recordatorio {reminder_id} completado", 'action': 'complete_reminder'}
+        return {'success': False, 'response': f"No encontre el recordatorio {reminder_id}", 'action': 'complete_reminder'}
 
     def stats_skill(self, command: str) -> Dict[str, Any]:
-        """Muestra estadisticas de uso"""
-        from core.database import Database
-        db = Database()
-        stats = db.get_stats()
-        
-        response = (
-            f"Comandos ejecutados: {stats['total_commands']}. "
-            f"Exitosos: {stats['success_commands']}. "
-            f"Notas guardadas: {stats['total_notes']}. "
-            f"Recordatorios pendientes: {stats['pending_reminders']}."
-        )
-        
-        return {
-            'success': True,
-            'response': response,
-            'action': 'stats'
-        }
-    
+        stats = self.db.get_stats()
+        response = f"Comandos: {stats['total_commands']}. Exitosos: {stats['success_commands']}. Notas: {stats['total_notes']}. Pendientes: {stats['pending_reminders']}."
+        return {'success': True, 'response': response, 'action': 'stats'}
+
     # ==========================================
     # VOLUMEN
     # ==========================================
-    
+
     def set_volume(self, command: str) -> Dict[str, Any]:
-        """Ajusta el volumen del sistema"""
         numbers = re.findall(r'\d+', command)
-        
         if numbers:
-            level = int(numbers[0])
-            level = max(0, min(100, level))
-            
+            level = max(0, min(100, int(numbers[0])))
             ps_script = f"""
             Add-Type -TypeDefinition @"
             using System;
@@ -820,9 +458,6 @@ class SkillManager:
             [Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
             interface IAudioEndpointVolume {{
                 int SetMasterVolumeLevelScalar(float fLevel, Guid pguidEventContext);
-                int GetMasterVolumeLevelScalar(out float pfLevel);
-                int SetMute(bool bMute, Guid pguidEventContext);
-                int GetMute(out bool pbMute);
             }}
             [Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
             interface IMMDevice {{
@@ -847,297 +482,205 @@ class SkillManager:
 "@
             [Audio]::SetVolume({level})
             """
-            
             with open("_temp_volume.ps1", "w") as f:
                 f.write(ps_script)
             os.system("powershell -ExecutionPolicy Bypass -File _temp_volume.ps1")
             os.remove("_temp_volume.ps1")
-            
-            return {
-                'success': True,
-                'response': f"Volumen: {level}%",
-                'action': 'volume'
-            }
-        
-        return {
-            'success': False,
-            'response': "Especifica un nivel de volumen del 0 al 100",
-            'action': 'volume'
-        }
-    
+            return {'success': True, 'response': f"Volumen: {level}%", 'action': 'volume'}
+        return {'success': False, 'response': "Di un nivel del 0 al 100", 'action': 'volume'}
+
     def volume_up(self, command: str) -> Dict[str, Any]:
-        """Sube el volumen"""
         for _ in range(2):
             os.system('powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]175)"')
-        return {
-            'success': True,
-            'response': "Volumen arriba",
-            'action': 'volume_up'
-        }
-    
+        return {'success': True, 'response': "Volumen arriba", 'action': 'volume_up'}
+
     def volume_down(self, command: str) -> Dict[str, Any]:
-        """Baja el volumen"""
         for _ in range(2):
             os.system('powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]174)"')
-        return {
-            'success': True,
-            'response': "Volumen abajo",
-            'action': 'volume_down'
-        }
-    
+        return {'success': True, 'response': "Volumen abajo", 'action': 'volume_down'}
+
     def mute_volume(self, command: str) -> Dict[str, Any]:
-        """Silencia/restaura el volumen"""
         os.system('powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]173)"')
-        return {
-            'success': True,
-            'response': "Sonido activado/desactivado",
-            'action': 'mute'
-        }
-    
+        return {'success': True, 'response': "Sonido activado/desactivado", 'action': 'mute'}
+
     # ==========================================
     # MULTIMEDIA
     # ==========================================
-    
+
     def play_music(self, command: str) -> Dict[str, Any]:
-        """Abre Spotify"""
         try:
             subprocess.Popen("start spotify", shell=True)
-            return {
-                'success': True,
-                'response': "Abriendo Spotify",
-                'action': 'music'
-            }
+            return {'success': True, 'response': "Abriendo Spotify", 'action': 'music'}
         except:
-            return {
-                'success': True,
-                'response': "No pude abrir Spotify, abrelo manualmente",
-                'action': 'music'
-            }
-    
+            return {'success': True, 'response': "No pude abrir Spotify", 'action': 'music'}
+
     def next_track(self, command: str) -> Dict[str, Any]:
-        """Siguiente cancion"""
         os.system('powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]176)"')
-        return {
-            'success': True,
-            'response': "Siguiente",
-            'action': 'next_track'
-        }
-    
+        return {'success': True, 'response': "Siguiente", 'action': 'next_track'}
+
     def pause_media(self, command: str) -> Dict[str, Any]:
-        """Pausa la reproduccion"""
         os.system('powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"')
-        return {
-            'success': True,
-            'response': "Pausado",
-            'action': 'pause'
-        }
-    
+        return {'success': True, 'response': "Pausado", 'action': 'pause'}
+
     def resume_media(self, command: str) -> Dict[str, Any]:
-        """Reanuda la reproduccion"""
         os.system('powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"')
-        return {
-            'success': True,
-            'response': "Reproduciendo",
-            'action': 'resume'
-        }
-    
+        return {'success': True, 'response': "Reproduciendo", 'action': 'resume'}
+
     # ==========================================
     # CAPTURA
     # ==========================================
-    
+
     def screenshot(self, command: str) -> Dict[str, Any]:
-        """Toma captura de pantalla"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         desktop = os.path.expanduser("~/Desktop")
         filepath = os.path.join(desktop, f"screenshot_{timestamp}.png")
-        
         ps_script = f"""
         Add-Type -AssemblyName System.Windows.Forms
         Add-Type -AssemblyName System.Drawing
         $screen = [System.Windows.Forms.Screen]::PrimaryScreen
         $bitmap = New-Object System.Drawing.Bitmap $screen.Bounds.Width, $screen.Bounds.Height
         $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-        $graphics.CopyFromScreen($screen.Bounds.X, $screen.Bounds.Y, 0, 0, $bitmap.Size)
+        $graphics.CopyFromScreen(0, 0, 0, 0, $bitmap.Size)
         $bitmap.Save('{filepath}')
         $graphics.Dispose()
         $bitmap.Dispose()
         """
-        
         with open("_temp_screenshot.ps1", "w") as f:
             f.write(ps_script)
-        
         os.system("powershell -ExecutionPolicy Bypass -File _temp_screenshot.ps1")
         os.remove("_temp_screenshot.ps1")
-        
-        return {
-            'success': True,
-            'response': "Captura guardada en el escritorio",
-            'action': 'screenshot'
-        }
+        return {'success': True, 'response': "Captura guardada", 'action': 'screenshot'}
+
+    # ==========================================
+    # TEMPORIZADORES (usa self.timer_manager inyectado)
+    # ==========================================
 
     def set_timer_skill(self, command: str) -> Dict[str, Any]:
-        """Configura un temporizador"""
-        from core.timers import TimerManager
-        timer_mgr = TimerManager()
-        seconds = timer_mgr.parse_time(command)
-        
+        if not self.timer_manager:
+            from core.timers import TimerManager
+            self.timer_manager = TimerManager()
+        seconds = self.timer_manager.parse_time(command)
         if not seconds:
-            return {
-                'success': False,
-                'response': "No entendi el tiempo. Di: temporizador 5 minutos",
-                'action': 'timer'
-            }
-        
-        response = timer_mgr.set_timer(seconds)
-        
-        return {
-            'success': True,
-            'response': response,
-            'action': 'timer'
-        }
-    
+            return {'success': False, 'response': "No entendi el tiempo", 'action': 'timer'}
+        response = self.timer_manager.set_timer(seconds)
+        return {'success': True, 'response': response, 'action': 'timer'}
+
     def set_alarm_skill(self, command: str) -> Dict[str, Any]:
-        """Configura una alarma"""
-        from core.timers import TimerManager
-        timer_mgr = TimerManager()
-        time_tuple = timer_mgr.parse_alarm_time(command)
-        
+        if not self.timer_manager:
+            from core.timers import TimerManager
+            self.timer_manager = TimerManager()
+        time_tuple = self.timer_manager.parse_alarm_time(command)
         if not time_tuple:
-            return {
-                'success': False,
-                'response': "No entendi la hora. Di: alarma a las 8:30",
-                'action': 'alarm'
-            }
-        
+            return {'success': False, 'response': "No entendi la hora", 'action': 'alarm'}
         hour, minute = time_tuple
-        response = timer_mgr.set_alarm(hour, minute)
-        
-        return {
-            'success': True,
-            'response': response,
-            'action': 'alarm'
-        }
-    
+        response = self.timer_manager.set_alarm(hour, minute)
+        return {'success': True, 'response': response, 'action': 'alarm'}
+
     def cancel_timer_skill(self, command: str) -> Dict[str, Any]:
-        """Cancela un temporizador"""
-        from core.timers import TimerManager
-        timer_mgr = TimerManager()
-        response = timer_mgr.cancel_timer()
-        return {
-            'success': True,
-            'response': response,
-            'action': 'cancel_timer'
-        }
-    
+        if not self.timer_manager:
+            return {'success': False, 'response': "No hay temporizadores activos", 'action': 'cancel_timer'}
+        response = self.timer_manager.cancel_timer()
+        return {'success': True, 'response': response, 'action': 'cancel_timer'}
+
     def cancel_alarm_skill(self, command: str) -> Dict[str, Any]:
-        """Cancela una alarma"""
-        from core.timers import TimerManager
-        timer_mgr = TimerManager()
-        response = timer_mgr.cancel_alarm()
-        return {
-            'success': True,
-            'response': response,
-            'action': 'cancel_alarm'
-        }
-    
+        if not self.timer_manager:
+            return {'success': False, 'response': "No hay alarmas programadas", 'action': 'cancel_alarm'}
+        response = self.timer_manager.cancel_alarm()
+        return {'success': True, 'response': response, 'action': 'cancel_alarm'}
+
     def list_timers_skill(self, command: str) -> Dict[str, Any]:
-        """Lista temporizadores activos"""
-        from core.timers import TimerManager
-        timer_mgr = TimerManager()
-        response = timer_mgr.list_timers()
-        return {
-            'success': True,
-            'response': response,
-            'action': 'list_timers'
-        }
-    
+        if not self.timer_manager:
+            return {'success': True, 'response': "No hay temporizadores activos", 'action': 'list_timers'}
+        response = self.timer_manager.list_timers()
+        return {'success': True, 'response': response, 'action': 'list_timers'}
+
     def list_alarms_skill(self, command: str) -> Dict[str, Any]:
-        """Lista alarmas programadas"""
-        from core.timers import TimerManager
-        timer_mgr = TimerManager()
-        response = timer_mgr.list_alarms()
-        return {
-            'success': True,
-            'response': response,
-            'action': 'list_alarms'
-        }
+        if not self.timer_manager:
+            return {'success': True, 'response': "No hay alarmas programadas", 'action': 'list_alarms'}
+        response = self.timer_manager.list_alarms()
+        return {'success': True, 'response': response, 'action': 'list_alarms'}
+
+    # ==========================================
+    # CONFIGURACION
+    # ==========================================
 
     def toggle_startup(self, command: str) -> Dict[str, Any]:
-        """Activa o desactiva el inicio con Windows"""
         from core.startup import StartupManager
         startup = StartupManager()
         response = startup.toggle()
-        return {
-            'success': True,
-            'response': response,
-            'action': 'startup'
-        }
-    
+        return {'success': True, 'response': response, 'action': 'startup'}
+
+    # ==========================================
+    # FRASES
+    # ==========================================
+
     def random_quote(self, command: str) -> Dict[str, Any]:
-        """Devuelve una frase aleatoria"""
-        from core.quotes import get_quote_manager
-        quotes = get_quote_manager()
-        response = quotes.get_random_fact()
-        return {
-            'success': True,
-            'response': response,
-            'action': 'quote'
-        }
-    
+        response = self.quotes.get_random_fact()
+        return {'success': True, 'response': response, 'action': 'quote'}
+
+    # ==========================================
+    # CALCULADORA
+    # ==========================================
+
     def calculate_skill(self, command: str) -> Dict[str, Any]:
-        """Calculadora por voz"""
         from core.calculator import Calculator
         calc = Calculator()
         response = calc.parse_and_calculate(command)
-        return {
-            'success': True,
-            'response': response,
-            'action': 'calculate'
-        }
+        return {'success': True, 'response': response, 'action': 'calculate'}
+
+    # ==========================================
+    # CONVERSOR
+    # ==========================================
 
     def convert_skill(self, command: str) -> Dict[str, Any]:
-        """Conversor de unidades"""
         from core.converter import UnitConverter
         conv = UnitConverter()
         response = conv.parse_and_convert(command)
-        return {
-            'success': True,
-            'response': response,
-            'action': 'convert'
-        }
+        return {'success': True, 'response': response, 'action': 'convert'}
+
+    # ==========================================
+    # NOTICIAS
+    # ==========================================
 
     def read_news_skill(self, command: str) -> Dict[str, Any]:
-        """Lee noticias por categoria"""
         from core.news import NewsReader
-
         news = NewsReader()
         command_lower = command.lower()
-
-        # Detectar categoria
         for category in news.feeds.keys():
             if category in command_lower:
                 response = news.format_for_speech(category)
-                return {
-                    'success': True,
-                    'response': response,
-                    'action': 'news'
-                }
-
-        # Por defecto, noticias nacionales
+                return {'success': True, 'response': response, 'action': 'news'}
         response = news.format_for_speech("nacional")
-        return {
-            'success': True,
-            'response': response,
-            'action': 'news'
-        }
+        return {'success': True, 'response': response, 'action': 'news'}
 
     def news_categories_skill(self, command: str) -> Dict[str, Any]:
-        """Lista categorias de noticias"""
         from core.news import NewsReader
         news = NewsReader()
         response = news.list_categories()
-        return {
-            'success': True,
-            'response': response,
-            'action': 'news_categories'
-        }
+        return {'success': True, 'response': response, 'action': 'news_categories'}
+
+    # ==========================================
+    # VENTANA ACTIVA
+    # ==========================================
+
+    def where_am_i_skill(self, command: str) -> Dict[str, Any]:
+        from core.window_tracker import WindowTracker
+        tracker = WindowTracker()
+        app = tracker.get_current_app()
+        if app and app != "Desconocido":
+            return {'success': True, 'response': f"Estas en {app}. {tracker.get_context()}", 'action': 'window_info'}
+        return {'success': True, 'response': "No puedo identificar la aplicacion actual", 'action': 'window_info'}
+
+    def am_i_coding_skill(self, command: str) -> Dict[str, Any]:
+        from core.window_tracker import WindowTracker
+        tracker = WindowTracker()
+        if tracker.is_coding():
+            return {'success': True, 'response': "Si, estas programando. Sigue asi, señor.", 'action': 'coding_check'}
+        return {'success': True, 'response': "No, no parece que estes programando ahora.", 'action': 'coding_check'}
+
+    def am_i_listening_skill(self, command: str) -> Dict[str, Any]:
+        from core.window_tracker import WindowTracker
+        tracker = WindowTracker()
+        if tracker.is_listening_music():
+            return {'success': True, 'response': "Si, estas en Spotify. Disfruta de la musica, señor.", 'action': 'music_check'}
+        return {'success': True, 'response': "No estas escuchando musica ahora.", 'action': 'music_check'}
